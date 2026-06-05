@@ -1,0 +1,1 @@
+"""News recommendation application package."""
