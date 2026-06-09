@@ -24,6 +24,13 @@ class ArticleRepository:
         statement = select(Article).order_by(Article.created_at.desc()).limit(limit)
         return list(self.db.scalars(statement).all())
 
+    def get_by_source_external_id(self, source: str, external_id: str) -> Article | None:
+        statement = select(Article).where(
+            Article.source == source,
+            Article.external_id == external_id,
+        )
+        return self.db.scalar(statement)
+
 
 class UserRepository:
     def __init__(self, db: Session) -> None:
