@@ -28,7 +28,7 @@ Build a recommendation platform that:
 - Ingests new articles daily
 - Performs BM25 retrieval
 - Performs dense vector retrieval
-- Uses hybrid retrieval
+- Uses BM25 overretrieval with dense semantic reranking
 - Reranks candidates with LightGBM
 - Serves recommendations through FastAPI
 - Logs user interactions
@@ -49,9 +49,9 @@ PostgreSQL Article Store
         ↓
 OpenSearch BM25 Index
         ↓
-Qdrant Vector Index
+BM25 Candidate Overretrieval
         ↓
-Hybrid Candidate Retrieval
+SentenceTransformers Dense Reranking
         ↓
 LightGBM Ranker
         ↓
@@ -409,35 +409,60 @@ Requirements:
 
 ---
 
-# Phase 7 — Hybrid Retrieval
+# Phase 7 — BM25 Overretrieval + Dense Reranking
 
 ## Goal
 
-Combine BM25 and dense retrieval.
+Use BM25 as the high-recall first-stage retriever, then use SentenceTransformers embeddings to semantically rerank the retrieved candidates.
 
-## Formula
+## Pipeline
 
 ```text
-hybrid_score =
-  0.5 * normalized_bm25 +
-  0.5 * normalized_dense
+query
+    ↓
+OpenSearch BM25 top 200-1000 candidates
+    ↓
+fetch candidate article text/payload
+    ↓
+SentenceTransformers query/article embeddings
+    ↓
+cosine similarity dense reranking
+    ↓
+top reranked candidates
 ```
 
 ## Tasks
 
-- Score normalization
-- Deduplication
-- Candidate merging
+- BM25 overretrieval
+- Candidate article text preparation
+- Query embedding generation
+- Candidate embedding generation or lookup
+- Cosine similarity scoring
+- Dense reranking of BM25 candidates
+- Configurable candidate pool size and final top_k
+
+## Optional Extension
+
+Add true hybrid retrieval later by merging independent BM25 and Qdrant candidate sets:
+
+```text
+hybrid_score =
+  bm25_weight * normalized_bm25 +
+  dense_weight * normalized_dense
+```
 
 ## Codex Prompt
 
 ```text
-Implement hybrid retrieval combining BM25 and dense retrieval.
+Implement BM25 overretrieval with dense semantic reranking.
 
 Requirements:
-- score normalization
-- deduplication
-- configurable weighting
+- retrieve a large candidate pool with BM25
+- embed query and candidate article text
+- compute cosine similarity
+- rerank candidates by dense similarity
+- preserve BM25 score for later ranking features
+- configurable candidate_pool_size and top_k
 ```
 
 ---
@@ -453,7 +478,7 @@ Build ranking dataset.
 ```text
 bm25_score
 dense_score
-hybrid_score
+rerank_score
 article_age_hours
 article_popularity
 user_category_affinity
@@ -802,7 +827,7 @@ This project demonstrates:
 
 # Strong Resume Bullets
 
-> Built a production-style recommendation platform using BM25, dense retrieval, hybrid search, and LightGBM reranking with FastAPI-based serving.
+> Built a production-style recommendation platform using BM25 overretrieval, dense semantic reranking, and LightGBM ranking with FastAPI-based serving.
 
 > Designed Airflow-orchestrated retraining pipelines using KubernetesPodOperator for distributed model training, evaluation, and automated MLflow model promotion.
 
@@ -819,7 +844,7 @@ This project demonstrates:
 4. MIND ingestion
 5. BM25 retrieval
 6. Dense retrieval
-7. Hybrid retrieval
+7. BM25 overretrieval + dense reranking
 8. Feature generation
 9. LightGBM training
 10. Recommendation API
@@ -845,4 +870,3 @@ Useful references:
 
 - https://developers.openai.com/codex/learn/best-practices
 - https://developers.openai.com/cookbook/articles/codex_exec_plans
-

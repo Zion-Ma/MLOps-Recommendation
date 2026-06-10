@@ -11,6 +11,8 @@ from app.retrieval.bm25 import (
 
 
 class FakeIndices:
+    """Minimal fake for the OpenSearch indices API used by the BM25 module."""
+
     def __init__(self, exists: bool = False) -> None:
         self.exists_value = exists
         self.created_body: dict | None = None
@@ -27,6 +29,8 @@ class FakeIndices:
 
 
 class FakeOpenSearchClient:
+    """Fake OpenSearch client that records calls without requiring a live service."""
+
     def __init__(self) -> None:
         self.indices = FakeIndices()
         self.indexed_documents: list[dict] = []

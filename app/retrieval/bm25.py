@@ -7,6 +7,8 @@ from app.db.models import Article
 
 ARTICLE_INDEX_NAME = "articles"
 
+# OpenSearch uses BM25 for text fields by default, but keeping the mapping explicit
+# makes the retrieval behavior easier to reason about and reproduce.
 ARTICLE_INDEX_MAPPING: dict[str, Any] = {
     "settings": {
         "index": {
@@ -45,6 +47,7 @@ class BM25Result:
 def create_opensearch_client() -> Any:
     from opensearchpy import OpenSearch  # type: ignore[import-not-found]
 
+    # Docker Compose exposes OpenSearch as "opensearch"; local CLI usage defaults to localhost.
     return OpenSearch(
         hosts=[os.getenv("OPENSEARCH_URL", "http://localhost:9200")],
         verify_certs=False,
@@ -52,12 +55,14 @@ def create_opensearch_client() -> Any:
 
 
 def ensure_article_index(client: Any, index_name: str = ARTICLE_INDEX_NAME) -> None:
+    # The index is derived from Postgres articles, so creation is idempotent.
     if client.indices.exists(index=index_name):
         return
     client.indices.create(index=index_name, body=ARTICLE_INDEX_MAPPING)
 
 
 def article_to_document(article: Article) -> dict[str, Any]:
+    # Store only retrieval-facing fields in OpenSearch; Postgres remains the source of truth.
     return {
         "article_id": str(article.id),
         "external_id": article.external_id,
@@ -77,6 +82,7 @@ def index_articles(
 ) -> int:
     ensure_article_index(client, index_name=index_name)
 
+    # Use the Postgres article UUID as the OpenSearch document ID to make re-indexing stable.
     for article in articles:
         client.index(
             index=index_name,
@@ -97,6 +103,7 @@ def search_bm25(
     top_k: int = 10,
     index_name: str = ARTICLE_INDEX_NAME,
 ) -> list[BM25Result]:
+    # Title matches are weighted higher because they are usually more precise than body text.
     body = {
         "size": top_k,
         "query": {
