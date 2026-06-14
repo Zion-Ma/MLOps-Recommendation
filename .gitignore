@@ -212,3 +212,17 @@ __marimo__/
 # Project data artifacts
 data/*
 !data/.gitkeep
+
+# Model artifacts and caches
+models/
+model_artifacts/
+artifacts/
+checkpoints/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+*.gguf
+.cache/
+huggingface/

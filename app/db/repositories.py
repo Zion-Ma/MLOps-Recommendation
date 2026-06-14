@@ -31,6 +31,13 @@ class ArticleRepository:
         )
         return self.db.scalar(statement)
 
+    def get_by_ids(self, article_ids: list[UUID]) -> list[Article]:
+        if not article_ids:
+            return []
+
+        statement = select(Article).where(Article.id.in_(article_ids))
+        return list(self.db.scalars(statement).all())
+
 
 class UserRepository:
     def __init__(self, db: Session) -> None:
@@ -61,6 +68,26 @@ class UserEventRepository:
         statement = (
             select(UserEvent)
             .where(UserEvent.user_id == user_id)
+            .order_by(UserEvent.timestamp.desc())
+            .limit(limit)
+        )
+        return list(self.db.scalars(statement).all())
+
+    def list_labeled_impressions(self, limit: int = 1000) -> list[UserEvent]:
+        statement = (
+            select(UserEvent)
+            .where(UserEvent.event_type == "impression")
+            .where(UserEvent.event_metadata["clicked"].as_integer().is_not(None))
+            .order_by(UserEvent.timestamp.desc())
+            .limit(limit)
+        )
+        return list(self.db.scalars(statement).all())
+
+    def list_clicks_for_user(self, user_id: UUID, limit: int = 1000) -> list[UserEvent]:
+        statement = (
+            select(UserEvent)
+            .where(UserEvent.user_id == user_id)
+            .where(UserEvent.event_type == "click")
             .order_by(UserEvent.timestamp.desc())
             .limit(limit)
         )
