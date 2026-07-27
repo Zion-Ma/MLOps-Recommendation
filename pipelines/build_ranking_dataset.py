@@ -30,7 +30,12 @@ def row_to_dict(row: RankingFeatureRow) -> dict[str, object]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build ranking feature dataset.")
     parser.add_argument("--output-path", required=True)
-    parser.add_argument("--limit", type=int, default=1000)
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=50_000,
+        help="Max labeled impression events to include (default: 50000)",
+    )
     return parser.parse_args()
 
 def build_rows(db: Session, limit: int) -> list[RankingFeatureRow]:
@@ -44,6 +49,7 @@ def build_rows(db: Session, limit: int) -> list[RankingFeatureRow]:
     article_ids = [event.article_id for event in impression_events]
     articles = article_repo.get_by_ids(article_ids)
     articles_by_id = {article.id: article for article in articles}
+    clicks_by_user: dict[UUID, list[UserEvent]] = {}
 
     rows = []
     for event in impression_events:
@@ -53,9 +59,21 @@ def build_rows(db: Session, limit: int) -> list[RankingFeatureRow]:
         if label is None or article is None:
             continue
 
-        user_clicks = event_repo.list_clicks_for_user(event.user_id)
+        if event.user_id not in clicks_by_user:
+            clicks_by_user[event.user_id] = event_repo.list_clicks_for_user(event.user_id)
+        user_clicks = clicks_by_user[event.user_id]
 
         clicked_article_ids = [click.article_id for click in user_clicks]
+        # Ensure click articles are available for category affinity features.
+        missing_click_ids = [
+            click.article_id
+            for click in user_clicks
+            if click.article_id not in articles_by_id
+        ]
+        if missing_click_ids:
+            for clicked_article in article_repo.get_by_ids(missing_click_ids):
+                articles_by_id[clicked_article.id] = clicked_article
+
         clicked_categories = _clicked_categories(
             clicks=user_clicks,
             articles_by_id=articles_by_id,

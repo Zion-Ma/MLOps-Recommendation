@@ -213,6 +213,11 @@ __marimo__/
 data/*
 !data/.gitkeep
 
+# MLflow local tracking
+mlruns/
+mlartifacts/
+.mlflow/
+
 # Model artifacts and caches
 models/
 model_artifacts/

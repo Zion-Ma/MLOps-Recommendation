@@ -4,7 +4,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import Distance, PointStruct, VectorParams
 from sentence_transformers import SentenceTransformer
 
 from app.db.models import Article

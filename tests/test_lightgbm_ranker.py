@@ -10,6 +10,7 @@ from app.ranking.lightgbm_ranker import (
     load_training_data,
     split_features_labels_groups,
 )
+from pipelines.train_ranker import split_train_validation_groups
 
 
 def make_training_frame() -> pd.DataFrame:
@@ -63,10 +64,10 @@ def test_load_training_data_rejects_missing_columns(tmp_path: Path) -> None:
 
 class FakeRanker:
     def predict(self, features: pd.DataFrame) -> list[float]:
-        return [0.2, 0.9, 0.1, 0.8]
+        return features["bm25_score"].astype(float).tolist()
 
 
-def test_evaluate_ranker_returns_ndcg_at_10() -> None:
+def test_evaluate_ranker_returns_ranking_metrics() -> None:
     dataframe = pd.DataFrame(
         {
             "group_id": ["a", "a", "b", "b"],
@@ -83,9 +84,11 @@ def test_evaluate_ranker_returns_ndcg_at_10() -> None:
     metrics = evaluate_ranker(FakeRanker(), dataframe)
 
     assert metrics["ndcg_at_10"] == 1.0
+    assert metrics["mrr"] == 1.0
+    assert metrics["recall_at_50"] == 1.0
 
 
-def test_evaluate_ranker_returns_zero_without_mixed_label_groups() -> None:
+def test_evaluate_ranker_returns_zero_without_relevant_labels() -> None:
     dataframe = pd.DataFrame(
         {
             "group_id": ["a", "a"],
@@ -101,4 +104,36 @@ def test_evaluate_ranker_returns_zero_without_mixed_label_groups() -> None:
 
     metrics = evaluate_ranker(FakeRanker(), dataframe)
 
-    assert metrics == {"ndcg_at_10": 0.0}
+    assert metrics == {"ndcg_at_10": 0.0, "mrr": 0.0, "recall_at_50": 0.0}
+
+
+def test_evaluate_ranker_mrr_penalizes_lower_ranked_click() -> None:
+    dataframe = pd.DataFrame(
+        {
+            "group_id": ["a", "a", "a"],
+            "label": [1, 0, 0],
+            "bm25_score": [0.1, 0.9, 0.8],
+            "dense_score": [0.0, 0.0, 0.0],
+            "rerank_score": [0.0, 0.0, 0.0],
+            "article_age_hours": [1.0, 2.0, 3.0],
+            "article_popularity": [0.0, 0.0, 0.0],
+            "user_category_affinity": [0.0, 0.0, 0.0],
+        }
+    )
+
+    metrics = evaluate_ranker(FakeRanker(), dataframe)
+
+    assert metrics["mrr"] == pytest.approx(1.0 / 3.0)
+
+
+def test_split_train_validation_groups_keeps_groups_intact() -> None:
+    dataframe = make_training_frame().sort_values("group_id").reset_index(drop=True)
+
+    train, validation = split_train_validation_groups(
+        dataframe,
+        validation_fraction=0.5,
+        random_state=0,
+    )
+
+    assert set(train["group_id"]).isdisjoint(set(validation["group_id"]))
+    assert len(train) + len(validation) == len(dataframe)
