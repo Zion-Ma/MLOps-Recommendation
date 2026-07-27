@@ -17,7 +17,8 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # Public ECR mirror of Docker Hub library/postgres — avoids Hub rate-limit pull failures on GHA.
+        image: public.ecr.aws/docker/library/postgres:16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
