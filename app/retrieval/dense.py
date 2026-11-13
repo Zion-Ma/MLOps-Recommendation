@@ -35,13 +35,15 @@ def create_qdrant_client() -> QdrantClient:
 def create_embedding_model(
     model_name: str = DEFAULT_EMBEDDING_MODEL,
 ) -> SentenceTransformer:
-    return cast(SentenceTransformer, SentenceTransformer(model_name))
+    model: SentenceTransformer = SentenceTransformer(model_name)
+    return model
 
 
 # Embed texts
 def embed_texts(model: SentenceTransformer, texts: list[str]) -> list[list[float]]:
     embeddings = model.encode(texts, normalize_embeddings=True)
-    return embeddings.tolist()
+    vectors: list[list[float]] = embeddings.tolist()
+    return vectors
 
 
 # Ensure Qdrant collection
