@@ -1,0 +1,34 @@
+# One-shot database migration job. Run before the first API deploy and after
+# schema changes:
+#   kubectl -n news-rec delete job db-migrate --ignore-not-found
+#   kubectl apply -f k8s/jobs/migrate-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate
+  namespace: news-rec
+  labels:
+    app: db-migrate
+    app.kubernetes.io/part-of: news-rec
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: db-migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: ghcr.io/zion-ma/mlops-recommendation:latest
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef:
+                name: news-rec-config
+            - secretRef:
+                name: news-rec-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi

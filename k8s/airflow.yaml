@@ -1,0 +1,213 @@
+# Airflow with LocalExecutor: a webserver and a scheduler sharing the news_rec
+# Postgres instance for metadata. DAGs are mounted from a ConfigMap; refresh it
+# after changing the dags folder:
+#   kubectl -n news-rec create configmap airflow-dags \
+#     --from-file=airflow/dags/ -o yaml --dry-run=client | kubectl apply -f -
+#
+# Airflow keeps its metadata in a separate "airflow" database on the shared
+# Postgres instance; create it once before the first deploy:
+#   kubectl -n news-rec exec statefulset/postgres -- createdb -U postgres airflow
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: airflow
+  namespace: news-rec
+  labels:
+    app: airflow
+    app.kubernetes.io/part-of: news-rec
+---
+# KubernetesPodOperator needs to manage pods in the namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: airflow-pod-launcher
+  namespace: news-rec
+  labels:
+    app: airflow
+    app.kubernetes.io/part-of: news-rec
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete", "patch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: airflow-pod-launcher
+  namespace: news-rec
+  labels:
+    app: airflow
+    app.kubernetes.io/part-of: news-rec
+subjects:
+  - kind: ServiceAccount
+    name: airflow
+    namespace: news-rec
+roleRef:
+  kind: Role
+  name: airflow-pod-launcher
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-env
+  namespace: news-rec
+  labels:
+    app: airflow
+    app.kubernetes.io/part-of: news-rec
+data:
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  NEWS_REC_NAMESPACE: news-rec
+  NEWS_REC_IMAGE: ghcr.io/zion-ma/mlops-recommendation:latest
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-scheduler
+  namespace: news-rec
+  labels:
+    app: airflow-scheduler
+    app.kubernetes.io/part-of: news-rec
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: airflow-scheduler
+  template:
+    metadata:
+      labels:
+        app: airflow-scheduler
+    spec:
+      serviceAccountName: airflow
+      initContainers:
+        - name: airflow-db-migrate
+          image: apache/airflow:2.10.4
+          args: ["db", "migrate"]
+          envFrom:
+            - configMapRef:
+                name: airflow-env
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: news-rec-secrets
+                  key: POSTGRES_PASSWORD
+            # $(POSTGRES_PASSWORD) is expanded by Kubernetes because it is
+            # defined earlier in this env list.
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              value: postgresql+psycopg2://postgres:$(POSTGRES_PASSWORD)@postgres:5432/airflow
+      containers:
+        - name: scheduler
+          image: apache/airflow:2.10.4
+          args: ["scheduler"]
+          envFrom:
+            - configMapRef:
+                name: airflow-env
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: news-rec-secrets
+                  key: POSTGRES_PASSWORD
+            # $(POSTGRES_PASSWORD) is expanded by Kubernetes because it is
+            # defined earlier in this env list.
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              value: postgresql+psycopg2://postgres:$(POSTGRES_PASSWORD)@postgres:5432/airflow
+          volumeMounts:
+            - name: dags
+              mountPath: /opt/airflow/dags
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              memory: 2Gi
+      volumes:
+        - name: dags
+          configMap:
+            name: airflow-dags
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-webserver
+  namespace: news-rec
+  labels:
+    app: airflow-webserver
+    app.kubernetes.io/part-of: news-rec
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow-webserver
+  template:
+    metadata:
+      labels:
+        app: airflow-webserver
+    spec:
+      serviceAccountName: airflow
+      containers:
+        - name: webserver
+          image: apache/airflow:2.10.4
+          args: ["webserver"]
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: airflow-env
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: news-rec-secrets
+                  key: POSTGRES_PASSWORD
+            # $(POSTGRES_PASSWORD) is expanded by Kubernetes because it is
+            # defined earlier in this env list.
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              value: postgresql+psycopg2://postgres:$(POSTGRES_PASSWORD)@postgres:5432/airflow
+          volumeMounts:
+            - name: dags
+              mountPath: /opt/airflow/dags
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              memory: 2Gi
+      volumes:
+        - name: dags
+          configMap:
+            name: airflow-dags
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow
+  namespace: news-rec
+  labels:
+    app: airflow-webserver
+    app.kubernetes.io/part-of: news-rec
+spec:
+  selector:
+    app: airflow-webserver
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

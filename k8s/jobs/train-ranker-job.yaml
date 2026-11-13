@@ -1,0 +1,53 @@
+# Ad-hoc training job. The weekly_retraining Airflow DAG launches the same
+# steps via KubernetesPodOperator; this manifest is for manual runs:
+#   kubectl -n news-rec delete job train-ranker --ignore-not-found
+#   kubectl apply -f k8s/jobs/train-ranker-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: train-ranker
+  namespace: news-rec
+  labels:
+    app: train-ranker
+    app.kubernetes.io/part-of: news-rec
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: train-ranker
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: train
+          image: ghcr.io/zion-ma/mlops-recommendation:latest
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              python -m pipelines.build_ranking_dataset \
+                --output-path /data/ranking/dataset.parquet
+              python -m pipelines.train_ranker \
+                --input-path /data/ranking/dataset.parquet \
+                --output-path /data/models/ranker.txt \
+                --register-model
+          envFrom:
+            - configMapRef:
+                name: news-rec-config
+            - secretRef:
+                name: news-rec-secrets
+          volumeMounts:
+            - name: news-rec-data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              memory: 4Gi
+      volumes:
+        - name: news-rec-data
+          persistentVolumeClaim:
+            claimName: news-rec-data-pvc

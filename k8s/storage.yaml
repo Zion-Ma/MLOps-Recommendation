@@ -1,0 +1,16 @@
+# Shared volume where pipeline pods exchange datasets, models, and reports.
+# ReadWriteMany requires an RWX-capable storage class (e.g. NFS, EFS, Filestore);
+# on single-node clusters (minikube/kind) the default RWO class also works.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: news-rec-data-pvc
+  namespace: news-rec
+  labels:
+    app.kubernetes.io/part-of: news-rec
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
