@@ -1,0 +1,10 @@
+# Dependencies for the Airflow environment (scheduler/webserver + DAG tests).
+# Keep this separate from the app environment: Airflow pins SQLAlchemy 1.4
+# while the app requires SQLAlchemy 2.x.
+#
+#   python -m venv .venv-airflow
+#   .venv-airflow/bin/pip install -r airflow/requirements.txt
+#   .venv-airflow/bin/pytest tests/test_dags.py
+apache-airflow>=2.10,<3
+apache-airflow-providers-cncf-kubernetes>=8.0
+pytest>=8.0
