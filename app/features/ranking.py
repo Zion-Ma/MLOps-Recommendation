@@ -64,9 +64,16 @@ def build_ranking_feature_row(
     clicked_categories: list[str],
     label: int | None = None,
     now: datetime | None = None,
+    article_popularity: float | None = None,
 ) -> RankingFeatureRow:
     article_age_hours = compute_article_age_hours(published_at, now)
-    article_popularity = compute_article_popularity(candidate.article_id, clicked_article_ids)
+    if article_popularity is None:
+        # Fallback: count within the user's own clicks. NOTE: leaks the label
+        # when the candidate is the clicked article itself — training callers
+        # must pass a global popularity that excludes the user's own clicks.
+        article_popularity = compute_article_popularity(
+            candidate.article_id, clicked_article_ids
+        )
     user_category_affinity = compute_user_category_affinity(candidate_category, clicked_categories)
 
     return RankingFeatureRow(

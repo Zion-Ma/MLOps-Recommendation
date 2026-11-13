@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import lightgbm as lgb
 import pandas as pd
@@ -27,7 +27,8 @@ DEFAULT_RANKER_PARAMS: dict[str, float | int | str] = {
 
 
 class RankerPredict(Protocol):
-    def predict(self, features: pd.DataFrame) -> object: ...
+    # Positional-only so both LGBMRanker (X) and Booster (data) conform.
+    def predict(self, features: pd.DataFrame, /) -> Any: ...
 
 
 def load_training_data(path: Path) -> pd.DataFrame:

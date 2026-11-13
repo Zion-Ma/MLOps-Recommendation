@@ -49,6 +49,65 @@ def cosine_similarity(left: list[float], right: list[float]) -> float:
     return dot_product / (left_norm * right_norm)
 
 
+def rerank_bm25_results_precomputed(
+    query: str,
+    bm25_results: list[BM25Result],
+    candidate_vectors: dict[UUID, list[float]],
+    article_texts: dict[UUID, str],
+    model: SentenceTransformer,
+    top_k: int = 10,
+) -> list[RerankedResult]:
+    """Rerank BM25 candidates against precomputed embeddings.
+
+    Only the query is embedded per request; candidate vectors come from the
+    vector store. Candidates missing a stored vector (e.g. articles ingested
+    since the last indexing run) fall back to on-the-fly text encoding.
+    """
+    candidates = [
+        result
+        for result in bm25_results
+        if result.article_id in candidate_vectors or result.article_id in article_texts
+    ]
+    if not candidates:
+        return []
+
+    query_vector = embed_texts(model, [query])[0]
+
+    fallback = [result for result in candidates if result.article_id not in candidate_vectors]
+    if fallback:
+        fallback_texts = [article_texts[result.article_id] for result in fallback]
+        fallback_vectors = embed_texts(model, fallback_texts)
+        candidate_vectors = {
+            **candidate_vectors,
+            **{
+                result.article_id: vector
+                for result, vector in zip(fallback, fallback_vectors, strict=True)
+            },
+        }
+
+    reranked_results = []
+    for result in candidates:
+        dense_score = cosine_similarity(query_vector, candidate_vectors[result.article_id])
+        reranked_results.append(
+            RerankedResult(
+                article_id=result.article_id,
+                title=result.title,
+                url=result.url,
+                source=result.source,
+                category=result.category,
+                bm25_score=result.score,
+                dense_score=dense_score,
+                rerank_score=dense_score,
+            )
+        )
+
+    return sorted(
+        reranked_results,
+        key=lambda result: result.rerank_score,
+        reverse=True,
+    )[:top_k]
+
+
 def rerank_bm25_results(
     query: str,
     bm25_results: list[BM25Result],

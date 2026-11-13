@@ -70,3 +70,50 @@ def test_rerank_bm25_results_orders_by_dense_score(monkeypatch) -> None:
     assert results[0].dense_score == 1.0
     assert results[0].rerank_score == 1.0
     assert results[1].bm25_score == 100.0
+
+def test_rerank_precomputed_uses_stored_vectors_and_falls_back(monkeypatch):
+    from app.retrieval.rerank import rerank_bm25_results_precomputed
+
+    stored_id = uuid4()
+    fallback_id = uuid4()
+
+    encoded = []
+
+    def fake_embed_texts(model, texts):
+        encoded.extend(texts)
+        mapping = {"query": [1.0, 0.0], "fallback text": [1.0, 0.0]}
+        return [mapping[text] for text in texts]
+
+    monkeypatch.setattr("app.retrieval.rerank.embed_texts", fake_embed_texts)
+
+    results = rerank_bm25_results_precomputed(
+        query="query",
+        bm25_results=[
+            BM25Result(
+                article_id=stored_id,
+                score=2.0,
+                title="Stored",
+                url="https://example.com/stored",
+                source="test",
+                category=None,
+            ),
+            BM25Result(
+                article_id=fallback_id,
+                score=1.0,
+                title="Fallback",
+                url="https://example.com/fallback",
+                source="test",
+                category=None,
+            ),
+        ],
+        candidate_vectors={stored_id: [0.0, 1.0]},
+        article_texts={fallback_id: "fallback text"},
+        model=object(),
+        top_k=2,
+    )
+
+    # Only the query and the single missing candidate were encoded.
+    assert encoded == ["query", "fallback text"]
+    assert [result.article_id for result in results] == [fallback_id, stored_id]
+    assert results[0].rerank_score == 1.0
+    assert results[1].rerank_score == 0.0

@@ -110,6 +110,31 @@ def index_article_embeddings(
     return len(points)
 
 
+# Fetch stored embeddings for specific articles (serving fast path: avoids
+# re-encoding candidate texts on every request)
+def fetch_article_vectors(
+    client: QdrantClient,
+    article_ids: list[UUID],
+    collection_name: str = ARTICLE_COLLECTION_NAME,
+) -> dict[UUID, list[float]]:
+    if not article_ids:
+        return {}
+
+    points = client.retrieve(
+        collection_name=collection_name,
+        ids=[str(article_id) for article_id in article_ids],
+        with_vectors=True,
+        with_payload=False,
+    )
+
+    vectors: dict[UUID, list[float]] = {}
+    for point in points:
+        if isinstance(point.vector, list):
+            values = cast(list[float], point.vector)
+            vectors[UUID(str(point.id))] = [float(value) for value in values]
+    return vectors
+
+
 # Search for similar articles using dense embeddings
 def search_dense(
     client: QdrantClient,

@@ -50,24 +50,40 @@ def build_rows(db: Session, limit: int) -> list[RankingFeatureRow]:
     articles = article_repo.get_by_ids(article_ids)
     articles_by_id = {article.id: article for article in articles}
     clicks_by_user: dict[UUID, list[UserEvent]] = {}
+    # Popularity is global (all users) so it matches what serving can observe.
+    global_click_counts = event_repo.count_clicks_by_article(list(set(article_ids)))
 
     rows = []
     for event in impression_events:
         label = event_label(event)
         article = articles_by_id.get(event.article_id)
+        metadata = event.event_metadata
 
-        if label is None or article is None:
+        if label is None or article is None or metadata is None:
+            continue
+
+        # Ranking groups come from MIND impression ids; live impressions logged
+        # through the API don't carry one yet, so they can't form groups.
+        group_key = metadata.get("mind_impression_id")
+        if group_key is None:
             continue
 
         if event.user_id not in clicks_by_user:
             clicks_by_user[event.user_id] = event_repo.list_clicks_for_user(event.user_id)
         user_clicks = clicks_by_user[event.user_id]
 
-        clicked_article_ids = [click.article_id for click in user_clicks]
+        # Drop the user's clicks on the candidate itself so no feature encodes
+        # the label being predicted (see docs/TROUBLESHOOTING.md #14).
+        history_clicks = [
+            click for click in user_clicks if click.article_id != event.article_id
+        ]
+        own_candidate_clicks = len(user_clicks) - len(history_clicks)
+
+        clicked_article_ids = [click.article_id for click in history_clicks]
         # Ensure click articles are available for category affinity features.
         missing_click_ids = [
             click.article_id
-            for click in user_clicks
+            for click in history_clicks
             if click.article_id not in articles_by_id
         ]
         if missing_click_ids:
@@ -75,13 +91,17 @@ def build_rows(db: Session, limit: int) -> list[RankingFeatureRow]:
                 articles_by_id[clicked_article.id] = clicked_article
 
         clicked_categories = _clicked_categories(
-            clicks=user_clicks,
+            clicks=history_clicks,
             articles_by_id=articles_by_id,
+        )
+
+        article_popularity = float(
+            max(global_click_counts.get(event.article_id, 0) - own_candidate_clicks, 0)
         )
 
         rows.append(
             build_ranking_feature_row(
-                group_id=str(event.event_metadata["mind_impression_id"]),
+                group_id=str(group_key),
                 user_id=event.user_id,
                 candidate=CandidateScores(
                     article_id=event.article_id,
@@ -94,6 +114,7 @@ def build_rows(db: Session, limit: int) -> list[RankingFeatureRow]:
                 clicked_article_ids=clicked_article_ids,
                 clicked_categories=clicked_categories,
                 label=label,
+                article_popularity=article_popularity,
             )
         )
 

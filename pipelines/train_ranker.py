@@ -127,8 +127,10 @@ def run(
             train[FEATURE_COLUMNS],
             model.predict(train[FEATURE_COLUMNS]),
         )
+        # Log the native Booster: MLflow 3 serializes the sklearn wrapper via
+        # skops, which rejects LGBMRanker as an untrusted type.
         model_info = mlflow.lightgbm.log_model(
-            lgb_model=model,
+            model.booster_,
             artifact_path="lightgbm_ranker",
             signature=signature,
             registered_model_name=model_name if register_model else None,

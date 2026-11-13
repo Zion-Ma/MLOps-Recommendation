@@ -45,7 +45,7 @@ class BM25Result:
 
 
 def create_opensearch_client() -> Any:
-    from opensearchpy import OpenSearch  # type: ignore[import-not-found]
+    from opensearchpy import OpenSearch
 
     # Docker Compose exposes OpenSearch as "opensearch"; local CLI usage defaults to localhost.
     return OpenSearch(

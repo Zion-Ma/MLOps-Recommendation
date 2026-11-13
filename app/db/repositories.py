@@ -1,6 +1,7 @@
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Article, ModelVersion, Recommendation, User, UserEvent
@@ -83,6 +84,28 @@ class UserEventRepository:
         )
         return list(self.db.scalars(statement).all())
 
+    def count_clicks_by_article(self, article_ids: list[UUID]) -> dict[UUID, int]:
+        """Global click counts per article, across all users."""
+        if not article_ids:
+            return {}
+
+        statement = (
+            select(UserEvent.article_id, func.count())
+            .where(UserEvent.event_type == "click")
+            .where(UserEvent.article_id.in_(article_ids))
+            .group_by(UserEvent.article_id)
+        )
+        return {article_id: int(count) for article_id, count in self.db.execute(statement)}
+
+    def count_events_since(self, event_type: str, since: datetime) -> int:
+        statement = (
+            select(func.count())
+            .select_from(UserEvent)
+            .where(UserEvent.event_type == event_type)
+            .where(UserEvent.timestamp >= since)
+        )
+        return int(self.db.scalar(statement) or 0)
+
     def list_clicks_for_user(self, user_id: UUID, limit: int = 1000) -> list[UserEvent]:
         statement = (
             select(UserEvent)
@@ -112,6 +135,24 @@ class RecommendationRepository:
             .limit(limit)
         )
         return list(self.db.scalars(statement).all())
+
+    def upsert(self, recommendation: Recommendation) -> Recommendation:
+        # (user_id, article_id, model_version) is unique, so refresh the score and
+        # rank when the same recommendation is served again.
+        statement = select(Recommendation).where(
+            Recommendation.user_id == recommendation.user_id,
+            Recommendation.article_id == recommendation.article_id,
+            Recommendation.model_version == recommendation.model_version,
+        )
+        existing = self.db.scalar(statement)
+        if existing is None:
+            return self.create(recommendation)
+
+        existing.score = recommendation.score
+        existing.rank = recommendation.rank
+        self.db.commit()
+        self.db.refresh(existing)
+        return existing
 
 
 class ModelVersionRepository:
