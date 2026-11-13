@@ -5,6 +5,7 @@ from typing import Annotated, Any
 from uuid import UUID
 
 import lightgbm as lgb
+import numpy as np
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -244,7 +245,8 @@ def recommend_for_user(
     features["article_age_hours"] = features["article_age_hours"].fillna(0.0)
 
     with RANKING_LATENCY.time():
-        scores = [float(score) for score in ranker.predict(features)]
+        predictions = np.asarray(ranker.predict(features), dtype=float)
+        scores = [float(score) for score in predictions]
 
     ranked = sorted(
         zip(candidates, scores, strict=True),
