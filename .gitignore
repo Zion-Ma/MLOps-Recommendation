@@ -231,3 +231,12 @@ checkpoints/
 *.gguf
 .cache/
 huggingface/
+# Kubernetes secrets with real values
+k8s/secrets.yaml
+
+# Separate Airflow environment
+.venv-airflow/
+
+# Generated monitoring reports
+reports/*
+!reports/.gitkeep
